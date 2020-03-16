@@ -1,8 +1,12 @@
 #include "hostd.h"
-#include "queue.h"
 
+#include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <signal.h>
+#include <sys/wait.h>
+
+unsigned int ticks = 0;
 
 const resources resources_default = {
     .avail_printers = MAX_PRINTERS,
@@ -22,8 +26,10 @@ int request_resources(resources* avail_resources, resource_request request, bool
 
     int start_address = -1;
     unsigned int last_address = realtime ? MEMORY : MEMORY - 64;
+
+    unsigned int start_block = realtime ? MEMORY - 64 : 0;
     
-    for (unsigned int i = 0; i < last_address; i++) {
+    for (unsigned int i = start_block; i < last_address; i++) {
 
         // if looking for the start of a hole
         if (avail_resources->avail_mem[i] == 0 && start_address == -1) {
@@ -61,102 +67,101 @@ int request_resources(resources* avail_resources, resource_request request, bool
 
 }
 
-void free_resources(resources* avail_resources, resource_request loaned_resources, unsigned int address) {
+void free_resources(resources* avail_resources, proc* p) {
 
-    for (unsigned int i = address; i < address + loaned_resources.memory; i++) {
+    for (unsigned int i = p->address; i < p->address + p->resources.memory ; i++) {
         avail_resources->avail_mem[i] = 0;
     }
 
-    loaned_resources.num_scanners += avail_resources->avail_scanners;
-    loaned_resources.num_printers += avail_resources->avail_printers;
-    loaned_resources.num_modems += avail_resources->avail_modems;
-    loaned_resources.num_cds += avail_resources->avail_cds;
+    p->resources.num_scanners += avail_resources->avail_scanners;
+    p->resources.num_printers += avail_resources->avail_printers;
+    p->resources.num_modems += avail_resources->avail_modems;
+    p->resources.num_cds += avail_resources->avail_cds;
+
+    free(p);
+
+}
+
+void run_realtime(queue** realtime, resources* avail_res) {
+
+    while (*realtime != NULL) {
+        proc* p = pop(realtime);
+        int addr = request_resources(avail_res, p->resources, true);
+            if (addr < 0) {
+                fprintf(stderr, "No memory available for realtime proc\n");
+                exit(1);
+            }
+        p->address = addr;
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            perror("realtime fork");
+            exit(1);
+        
+        } else if (pid == 0) {
+            execl("./process", "");
+        } else {
+            p->pid = pid;
+            print_process(*p);
+            sleep(p->runtime);
+            kill(pid, SIGINT);
+            wait(NULL);
+            ticks += p->runtime;
+            free_resources(avail_res, p);
+        }
+    }
+
+}
+
+void run_process(proc* process, resources* avail_resources, queue** next_queue) {
+
+    if (process->pid == 0) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("user process fork");
+            exit(1);
+        } else if (pid == 0) {
+            execl("./process", "");
+        } else {
+            process->pid = pid;
+        }
+    } else {
+        kill(process->pid, SIGCONT);
+    }
+    print_process(*process);
+    sleep(1);
+    ticks++;
+    process->runtime--;
+
+    if (process->runtime == 0) {
+        kill(process->pid, SIGINT);
+        waitpid(process->pid, NULL, WUNTRACED);
+        free_resources(avail_resources, process);
+    } else {
+       
+        kill(process->pid, SIGTSTP);
+        
+        waitpid(process->pid, NULL, WUNTRACED);
+        if (process->priority < 3) {
+            process->priority++;
+        }
+        push(next_queue, process);
+    }
 
 
 }
 
-
-// #include<stddef.h>
-// #include<stdlib.h>
-// #include<stdio.h>
-
-// #include<unistd.h>
-// #include<signal.h>
-// #include<sys/types.h>
-// #include<sys/wait.h>
-// #include<string.h>
-
-
-
-
-
-
-
-// int main() {
-
-//     queue* head = NULL;
-
-//     FILE* f = fopen("processes_q5.txt", "r");
-//     if (f == NULL) {
-//         perror("processes.txt");
-//     }
-
-//     char line[512];
-//     while (fgets(line, sizeof(line), f)) {
-
-//         head = push(head, split(line));
-//     }
-
-//     queue* curr = head;
-
-
-//     while(curr != NULL) {
-//         if (curr->process.priority == 0) {a
-//             proc* p = delete_name(&head, curr->process.name);
-//             pid_t pid = fork();
-
-//             if (pid == 0) {
-//                 execl("./process", "");
-//             } else {
-//                 p->pid = pid;
-//                 sleep(p->runtime);
-//                 kill(pid, SIGINT);
-//                 waitpid(pid, NULL, 0);
-//                 printf("%s %d %d %d\n", p->name, p->priority, p->pid, p->runtime);
-//             }
-//         }
-
-//         curr = curr->next;
-//     } 
-
-//     while(head != NULL) {
-//         proc* p = pop(&head);
-//         pid_t pid = fork();
-
-//         if (pid == 0) {
-//             execl("./process", "");
-//         } else {
-//             p->pid = pid;
-//             sleep(p->runtime);
-//             kill(pid, SIGINT);
-//             waitpid(pid, NULL, 0);
-//             printf("%s %d %d %d\n", p->name, p->priority, p->pid, p->runtime);
-//         }
-//     }
-
-
-//     return 0;
-// }
-
 int main() {
 
-    // resources avail_resources = resources_default;
-    // queue* realtime = NULL;
-    // queue* priority_1 = NULL;
-    // queue* priority_2 = NULL;
-    // queue* priority_3 = NULL;
+    resources avail_resources = resources_default;
+    queue* dispatcher = NULL;
+    queue* user_queue = NULL;
+    queue* realtime = NULL;
+    queue* priority_1 = NULL;
+    queue* priority_2 = NULL;
+    queue* priority_3 = NULL;
+    
 
-    queue* head = NULL;
     FILE* f = fopen("dispatchlist", "r");
     if (f == NULL) {
         perror("dispatchlist");
@@ -164,12 +169,90 @@ int main() {
 
     char line[1024];
     while (fgets(line, sizeof(line), f)) {
-        push(&head, new_process(line));
+        push(&dispatcher, new_process(line));
     }
+    
+    int user_queue_size = 0;
+    // main dispatcher loop    
+    while (1) {
 
-    while (head != NULL) {
-        proc p = pop(&head);
-        printf("%d\n", p.resources.memory);
+        // get all incoming processes that have arrived
+        while (dispatcher != NULL && dispatcher->process->arrival_time <= ticks) {
+   
+            proc* p = pop(&dispatcher);
+            // assign it to the correct queue
+            if (p->priority == 0) {
+                push(&realtime, p);
+            } else {
+                // printf("%d", p->resources.memory)
+                push(&user_queue, p);
+                user_queue_size++;
+            }
+        }
+        
+        if (realtime != NULL) {
+            // run all realtime processes
+            run_realtime(&realtime, &avail_resources);
+            continue; // check to see if any new incoming processes have shown up
+        }
+
+        // check to see if any of the ready queue are ready to run
+        // printf("%d %d\n", user_queue_tail->arrival_time, user_queue_tail->resources.memory);
+        int i = 0;
+        while(user_queue != NULL) {
+            
+            proc* p = pop(&user_queue);
+            user_queue_size--;
+            i++;
+
+            int addr = request_resources(&avail_resources, p->resources, false);
+            if (addr < 0) {
+                user_queue_size++;
+                push(&user_queue, p);
+
+                if (i >= user_queue_size) {
+                    break;
+                }
+                if (i == 10) {
+                    exit(1);
+                }
+                continue;
+            }
+
+            p->address = addr;
+            
+            switch(p->priority) {
+                case 1:
+                    push(&priority_1, p);
+                    break;
+                case 2:
+                    push(&priority_2, p);
+                    break;
+                default:
+                    push(&priority_3, p);
+                    break;
+            }
+
+        }
+
+        if (priority_1 != NULL) {
+            proc* p = pop(&priority_1);
+            run_process(p, &avail_resources, &priority_2);
+        } else if (priority_2 != NULL) {
+            proc* p = pop(&priority_2);
+            run_process(p, &avail_resources, &priority_3);
+        } else if (priority_3 != NULL) {
+            proc* p = pop(&priority_3);
+            run_process(p, &avail_resources, &priority_3);
+        
+        // if all queues are empty, end the dispatcher
+        } else {
+            break;
+        }
+
+
+
+       
     }
 
 

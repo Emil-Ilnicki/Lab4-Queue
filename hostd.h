@@ -1,9 +1,9 @@
 #pragma once
 
 #define _POSIX_SOURCE
-#include<stdbool.h>
+#include <stdbool.h>
 #include "utility.h"
-
+#include "queue.h"
 
 #define MEMORY 1024
 #define MAX_PRINTERS 2
@@ -24,4 +24,4 @@ typedef struct resources_s resources;
 extern const resources resources_default; 
 
 int request_resources(resources* avail_resources, resource_request request, bool realtime);
-void free_resources(resources* avail_resources, resource_request loaned_resources, unsigned int address);
+void free_resources(resources* avail_resources, proc* p);

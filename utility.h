@@ -7,6 +7,5 @@ typedef struct resource_request_s {
     unsigned int num_scanners;
     unsigned int num_modems;
     unsigned int num_cds;
-    int mem_ptr;
 
 } resource_request;
