@@ -1,5 +1,7 @@
 #pragma once
-
+/*
+ * Structure to hold a resource request structure
+ */
 typedef struct resource_request_s {
 
     unsigned int memory;
