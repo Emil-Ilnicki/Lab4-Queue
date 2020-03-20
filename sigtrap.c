@@ -1,5 +1,6 @@
+#define _POSIX_SOURCE
 /* 
-  OS Exercises - project 2
+  Host Dispatcher Shell Project for SOFE 3950U / CSCI 3020U: Operating Systems
 
   sigtrap - report system signals applied to process
   
@@ -49,7 +50,7 @@ static void SignalHandler(int);
 void        PrintUsage(char*);   // for error exit & info 
 char       *StripPath(char*);    // strip path from filename
 
-#define DEFAULT_TIME 200
+#define DEFAULT_TIME 20
 #define DEFAULT_NAME "sigtrap"
 
 #define BLACK   "\033[30m"       // foreground colours
